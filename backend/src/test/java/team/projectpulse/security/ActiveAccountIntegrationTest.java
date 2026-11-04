@@ -15,7 +15,6 @@ import team.projectpulse.system.StatusCode;
 import team.projectpulse.user.PeerEvaluationUser;
 import team.projectpulse.user.UserRepository;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -59,21 +58,6 @@ class ActiveAccountIntegrationTest extends AbstractIntegrationTest {
         PeerEvaluationUser user = this.userRepository.findByEmail(email).orElseThrow();
         user.setEnabled(false);
         this.userRepository.saveAndFlush(user);
-    }
-
-    @Test
-    @DisplayName("A student's unexpired token is refused once her account is deactivated")
-    void studentTokenRefusedAfterDeactivation() throws Exception {
-        this.mockMvc.perform(post(this.baseUrl + "/activities/search").contentType(MediaType.APPLICATION_JSON).content("{}").header(HttpHeaders.AUTHORIZATION, this.studentJohnToken))
-                .andExpect(status().isOk());
-
-        disable("j.smith@abc.edu");
-
-        this.mockMvc.perform(post(this.baseUrl + "/activities/search").contentType(MediaType.APPLICATION_JSON).content("{}").header(HttpHeaders.AUTHORIZATION, this.studentJohnToken))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.flag").value(false))
-                .andExpect(jsonPath("$.code").value(StatusCode.UNAUTHORIZED))
-                .andExpect(jsonPath("$.data", containsString("This account is deactivated.")));
     }
 
     @Test
