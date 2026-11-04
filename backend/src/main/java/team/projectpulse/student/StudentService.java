@@ -3,18 +3,21 @@ package team.projectpulse.student;
 import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
+import team.projectpulse.system.WeekKeys;
 import team.projectpulse.system.exception.ObjectNotFoundException;
+import team.projectpulse.system.exception.StudentStatusConflictException;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import jakarta.transaction.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -27,17 +30,21 @@ public class StudentService {
     private final UserInvitationService userInvitationService;
     private final PasswordEncoder passwordEncoder;
     private final UserUtils userUtils;
+    private final StudentSecurityService studentSecurityService;
+    private final Clock clock;
 
 
-    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils) {
+    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils, StudentSecurityService studentSecurityService, Clock clock) {
+        this.studentSecurityService = studentSecurityService;
         this.studentRepository = studentRepository;
         this.sectionRepository = sectionRepository;
         this.userInvitationService = userInvitationService;
         this.passwordEncoder = passwordEncoder;
         this.userUtils = userUtils;
+        this.clock = clock;
     }
 
-    public Page<Student> findByCriteria(Map<String, String> searchCriteria, Pageable pageable) {
+    public StudentSearchResult findByCriteria(Map<String, String> searchCriteria, Pageable pageable) {
         Integer sectionId = this.userUtils.getUserSectionId();
 
         Specification<Student> spec = Specification.unrestricted(); // Start with an unrestricted specification, matching all objects.
@@ -68,7 +75,7 @@ public class StudentService {
 
         spec = spec.and(StudentSpecs.belongsToSection(sectionId)); // Only show students that belong to the default section of the instructor
 
-        return this.studentRepository.findAll(spec, pageable);
+        return new StudentSearchResult(this.studentRepository.findAll(spec, pageable), sectionId);
     }
 
     public Student findStudentById(Integer studentId) {
@@ -76,8 +83,20 @@ public class StudentService {
                 .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
     }
 
-    public List<Student> findStudentsByTeamId(Integer teamId) {
-        return this.studentRepository.findByTeamTeamId(teamId);
+    /**
+     * Her team's members. With a week, leaves out any member whose deactivation week is earlier than it, so the peer
+     * evaluation form shows a deactivated teammate exactly for the weeks she may be evaluated
+     * (BR-deactivated-student-weeks).
+     *
+     * @throws IllegalArgumentException if {@code week} is given and is not a well-formed week key
+     */
+    public List<Student> findStudentsByTeamId(Integer teamId, String week) {
+        List<Student> members = this.studentRepository.findByTeamTeamId(teamId);
+        if (week == null) {
+            return members;
+        }
+        WeekKeys.requireValid(week);
+        return members.stream().filter(student -> !student.wasDeactivatedBefore(week)).toList();
     }
 
     public Student saveStudent(Student newStudent, Integer courseId, Integer sectionId, String registrationToken, String role) {
@@ -104,25 +123,47 @@ public class StudentService {
         return savedStudent;
     }
 
+    /**
+     * Edits her username, names, and email. Deactivation is no longer done here: it has its own confirmed action,
+     * {@link #deactivateStudent} (UC-STU-deactivate-student). {@code enabled} in the update may only re-enable a
+     * deactivated student, and only for a caller who may manage her lifecycle (BR-student-lifecycle); that clears
+     * her deactivation date. This is the interim reactivation path until UC-STU-reactivate-student is designed.
+     * An {@code enabled} of false is ignored.
+     */
     public Student updateStudent(Integer studentId, Student update) {
         Student oldStudent = this.studentRepository.findById(studentId)
                 .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
 
-        // If the user is not an admin, then the user can only update her username, first rubricName, last rubricName, and email
         oldStudent.setUsername(update.getUsername());
         oldStudent.setFirstName(update.getFirstName());
         oldStudent.setLastName(update.getLastName());
         oldStudent.setEmail(update.getEmail());
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        // If the user is an admin, then the user can update all the fields
-        if (authentication.getAuthorities().stream().anyMatch(grantedAuthority -> grantedAuthority.getAuthority().equals("ROLE_instructor"))) {
-            oldStudent.setEnabled(update.isEnabled());
-//            oldStudent.setRoles(update.getRoles());
+        if (update.isEnabled() && !oldStudent.isEnabled() && this.studentSecurityService.canManageStudentLifecycle(studentId)) {
+            oldStudent.setEnabled(true);
+            oldStudent.setDeactivatedOn(null);
         }
 
         return this.studentRepository.save(oldStudent);
+    }
+
+    /**
+     * UC-STU-deactivate-student step 6: deactivates her and records her deactivation date, keeping her team and
+     * her submitted work. Her next request is then refused (FR-SEC-active-account).
+     *
+     * <p>The student is loaded scoped to the caller and row-locked. Nothing back means she was deleted after the
+     * route rule passed, or is out of the caller's scope: a permission error, never a 404 (6a). A student who is
+     * already deactivated is refused with 409 before any write, so her original date is kept (3a2).
+     */
+    public Student deactivateStudent(Integer studentId) {
+        Student student = this.studentRepository.findManageableByIdForUpdate(studentId, this.userUtils.getUserId())
+                .orElseThrow(() -> new AccessDeniedException("Not permitted to deactivate student " + studentId + "."));
+        if (!student.isEnabled()) {
+            throw new StudentStatusConflictException("Student is already deactivated.");
+        }
+        student.setEnabled(false);
+        student.setDeactivatedOn(LocalDate.now(this.clock));
+        return this.studentRepository.save(student);
     }
 
     public void deleteStudent(Integer studentId) {

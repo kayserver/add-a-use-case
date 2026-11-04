@@ -67,6 +67,12 @@ public class EvaluationService {
             throw new PeerEvaluationIllegalArgumentException("The evaluator and evaluatee must be on the same team.");
         }
 
+        // A deactivated teammate may be evaluated only for weeks up to and including her deactivation week
+        // (BR-deactivated-student-weeks)
+        if (newPeerEvaluation.getEvaluatee().wasDeactivatedBefore(newPeerEvaluation.getWeek())) {
+            throw new PeerEvaluationIllegalArgumentException(newPeerEvaluation.getEvaluatee().getFirstName() + " was deactivated before that week and cannot be evaluated for it.");
+        }
+
         // Make sure this is not a duplicate evaluation
         if (this.evaluationRepository.findByWeekAndEvaluatorIdAndEvaluateeId(newPeerEvaluation.getWeek(), newPeerEvaluation.getEvaluator().getId(), newPeerEvaluation.getEvaluatee().getId()).isPresent()) {
             throw new PeerEvaluationIllegalArgumentException("You have already submitted an evaluation for " + newPeerEvaluation.getEvaluatee().getFirstName() + " in this week.");
@@ -215,13 +221,20 @@ public class EvaluationService {
     }
 
     public WeeklyPeerEvaluationReport generateWeeklyPeerEvaluationReportForSection(Integer sectionId, String week) {
+        // The deactivation filter below orders week keys as strings, which only works for well-formed keys
+        WeekKeys.requireValid(week);
+
         // Create a new weekly peer evaluation report
         WeeklyPeerEvaluationReport report = new WeeklyPeerEvaluationReport();
 
         report.setSectionName(this.sectionRepository.findById(sectionId).orElseThrow(() -> new ObjectNotFoundException("section", sectionId)).getSectionName());
 
-        // Get all students in the section
-        List<Student> students = this.studentRepository.findBySectionSectionId(sectionId).stream().filter(student -> student.getTeam() != null).collect(Collectors.toList());
+        // Get all students in the section who are on a team, leaving out anyone deactivated before this week
+        // (BR-deactivated-student-weeks)
+        List<Student> students = this.studentRepository.findBySectionSectionId(sectionId).stream()
+                .filter(student -> student.getTeam() != null)
+                .filter(student -> !student.wasDeactivatedBefore(week))
+                .collect(Collectors.toList());
 
         // For each student, compute her average total score, collect all public comments and private comments, and compute rating averages for each criterion.
         students.forEach(student -> {

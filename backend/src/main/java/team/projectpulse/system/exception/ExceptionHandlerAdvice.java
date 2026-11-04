@@ -191,6 +191,12 @@ public class ExceptionHandlerAdvice {
         return new Result(false, StatusCode.FORBIDDEN, ex.getMessage());
     }
 
+    @ExceptionHandler(StudentStatusConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    Result handleStudentStatusConflictException(StudentStatusConflictException ex) {
+        return new Result(false, StatusCode.CONFLICT, ex.getMessage());
+    }
+
     @ExceptionHandler(SectionLockRequiredException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     Result handleSectionLockRequiredException(SectionLockRequiredException ex) {

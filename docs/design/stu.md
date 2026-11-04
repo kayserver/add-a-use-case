@@ -3,7 +3,7 @@
 > Realizes: UC-STU-deactivate-student
 > Depends on: FR-SEC-active-account, BR-student-lifecycle, BR-deactivated-student-weeks, BR-submission-owed, BR-section-scoped-access, BR-lock-expiry
 > See: [use cases](../requirements/use-cases.md#student), [SRS security requirements](../requirements/software-requirements-specification.md#security-and-authorization-requirements), [architectural-design.md](architectural-design.md#architectural-conventions) (foundation component view, Authentication and Authorization)
-> Designed against `main` at `59f0267` (2026-11-04). The other STU use cases (invite, find, view, delete) were built before this workflow existed. Their spec→code map is in [`traceability.md`](../traceability.md), and this doc does not redesign them. UC-STU-reactivate-student is **not** designed here.
+> Designed against `main` at `59f0267` (2026-11-04); built on `implement/uc-stu-deactivate-student`, and this doc updated to match. The other STU use cases (invite, find, view, delete) were built before this workflow existed. Their spec→code map is in [`traceability.md`](../traceability.md), and this doc does not redesign them. UC-STU-reactivate-student is **not** designed here.
 
 ## Overview
 
@@ -36,14 +36,25 @@ classDiagram
     class StudentController {
         <<reused>>
         +deactivateStudent(studentId) Result NEW
-        +findStudentsByCriteria(criteria, pageable) Result CHANGED: rows carry canDeactivate
+        +findStudentsByCriteria(criteria, pageable) Result CHANGED: rows carry deactivatedOn, canDeactivate
         +updateStudent(studentId, dto) Result CHANGED
     }
     class StudentService {
         <<reused>>
+        +findByCriteria(criteria, pageable) StudentSearchResult CHANGED: returns the course section id too
         +deactivateStudent(studentId) Student NEW
         +updateStudent(studentId, update) Student CHANGED: may only re-enable
         +findStudentsByTeamId(teamId, week) List~Student~ CHANGED: optional week
+    }
+    class StudentSearchResult {
+        <<new record>>
+        +page Page~Student~
+        +sectionId Integer
+    }
+    class StudentToStudentDtoConverter {
+        <<reused>>
+        +convert(student) StudentDto CHANGED: deactivatedOn, canDeactivate null
+        +convertWithLifecycle(student, canDeactivate) StudentDto NEW
     }
     class StudentRepository {
         <<reused>>
@@ -70,6 +81,7 @@ classDiagram
         <<reused entity>>
         -LocalDate deactivatedOn NEW
         +deactivationWeek() String NEW
+        +wasDeactivatedBefore(week) boolean NEW
     }
     class EvaluationService {
         <<reused, evaluation>>
@@ -77,7 +89,10 @@ classDiagram
         +generateWeeklyPeerEvaluationReportForSection(sectionId, week) CHANGED
     }
     StudentController --> StudentService
+    StudentController --> StudentToStudentDtoConverter
+    StudentService --> StudentSearchResult
     StudentService --> StudentRepository
+    StudentService --> StudentSecurityService
     StudentController --> StudentSecurityService
     StudentLifecycleAuthorizationManager --> StudentSecurityService
     ActiveAccountJwtValidator --> UserRepository
@@ -86,8 +101,9 @@ classDiagram
 
 Backend, all in `backend/src/main/java/team/projectpulse/`:
 - `student/StudentController.java`, `student/StudentService.java`, `student/StudentSecurityService.java`, `student/StudentRepository.java`: reused, with the changes in the diagram.
-- `student/Student.java`: gains `deactivatedOn` and `deactivationWeek()`, which uses `WeekKeys.of`.
-- `student/dto/StudentDto.java` and its two converters: gain `deactivatedOn` (`LocalDate`, null when active) and `canDeactivate` (`Boolean`). `canDeactivate` is set only on search rows and is null from every other endpoint. `deactivatedOn` is filled only for search rows and the single-student GET; endpoints a student can call (`/students/teams/{teamId}`, her own GET) leave it null, so a student never learns a teammate's deactivation date.
+- `student/Student.java`: gains `deactivatedOn`, `deactivationWeek()`, which uses `WeekKeys.of`, and `wasDeactivatedBefore(week)`, the one comparison the report, the evaluation check and the teammates list share.
+- `student/StudentSearchResult.java`: **new**, a record of the search page and the course section id it was scoped to.
+- `student/dto/StudentDto.java` and `StudentToStudentDtoConverter`: the DTO gains `deactivatedOn` (`LocalDate`, null when active) and `canDeactivate` (`Boolean`). `convert` leaves both null and is used wherever a student can read the result (`/students/teams/{teamId}`, login); `convertWithLifecycle` fills `deactivatedOn` and is used for search rows, the single-student GET and the deactivate response, and only search rows pass a `canDeactivate`. A student never learns a teammate's deactivation date. The single-student GET does reach the student herself, but her own `deactivatedOn` is always null while she can make requests. `StudentDtoToStudentConverter` ignores both fields.
 - `security/authorizationmanagers/StudentLifecycleAuthorizationManager.java`: **new**.
 - `security/ActiveAccountJwtValidator.java`: **new**.
 - `security/SecurityConfiguration.java`: one new route rule, and the validator wired into `jwtDecoder()`.
@@ -186,6 +202,7 @@ sequenceDiagram
 ## Key decisions
 
 - **An active-account check on every authenticated request (FR-SEC-active-account).** `ActiveAccountJwtValidator` is an `OAuth2TokenValidator<Jwt>` added beside the default validators in `jwtDecoder()`. It reads the `userId` claim and calls `UserRepository.existsByIdAndEnabledTrue`. A disabled or missing account fails validation, so the request gets a 401 and the SPA's interceptor logs the user out. The same check covers instructors, because it reads the shared `peer_evaluation_user` table. The cost is one primary-key lookup per request. *Rejected:* caching the result, because any cache lifetime reopens the window the FR forbids. *Rejected:* a token-version claim, which still needs a lookup per request to compare against. *Rejected:* shorter tokens, which shrink the window but don't close it. This changes the architecture-of-record's Authentication section and narrows TD-jwt-revocation. Both edits are part of this change and were approved for it.
+- **Interim reactivation asks `StudentSecurityService` from the service.** `StudentService` now depends on `StudentSecurityService` for that one check, the same rule the route uses, so there is one definition of who may manage a student's lifecycle.
 - **One action route, not a generic status field.** The deactivation has its own rules: a 409 when the student is already deactivated, keeping the original date, and a date to record. It also needs its own route rule, separate from `PUT /students/{studentId}`, which admits the student herself through `UserOwnershipAuthorizationManager`. *Rejected:* keeping deactivation on the PUT, which skips confirmation and records no date. Taking the role check out of `updateStudent` also removes the `SecurityContextHolder` call there that OI-63 lists, and with it the instructor-role branch. Interim reactivation (`enabled` true on the PUT) becomes allowed only to the callers `canManageStudentLifecycle` admits: `updateStudent` checks that through `StudentSecurityService` before honouring `enabled`, and ignores `enabled` otherwise.
 - **Interim reactivation through the PUT clears `deactivatedOn`.** You chose this. Until UC-STU-reactivate-student records a reactivation date, a student re-enabled this way shows in every week. *Rejected:* keeping the date, which would hide an active student from every report after her old deactivation week.
 - **Who may act: `canManageStudentLifecycle`.** The caller must be in `student.section.instructors` (the instructors of the course section, not the team's instructors and not the caller's default course section) or be `student.section.course.courseAdmin`. A role alone, `ROLE_admin` included, grants nothing. The route rule is `.access(studentLifecycleAuthorizationManager)` only, with no `hasAuthority`. No existing `/students/...` pattern matches `/students/{studentId}/deactivate`, so rule order doesn't matter. Like the other `*SecurityService` checks, it fails closed: an unknown id is a 403 (6a), never a 404, so the response doesn't reveal which ids exist. *Rejected:* widening `isCurrentUserInstructorOfStudentSection`, which also guards private peer-evaluation details (`StudentInstructorAuthorizationManager`).
@@ -193,6 +210,7 @@ sequenceDiagram
 - **The service loads the student scoped to the caller and locks the row.** `StudentRepository.findManageableByIdForUpdate(studentId, callerId)` is a JPQL query with `@Lock(PESSIMISTIC_WRITE)`. It returns the student only when the caller is in `section.instructors` or is `section.course.courseAdmin`. This is point 2 of the architecture-of-record's Authorization model: scope goes in the query, not in a check after an unscoped `findById`.
   - When nothing comes back, either because the student was deleted after the filter passed (6a) or because scope was lost some other way, the service throws Spring's `AccessDeniedException`, which `ExceptionHandlerAdvice` already maps to 403 "No permission.". It is never `ObjectNotFoundException` and never a 404, so 6a gives the permission error that 6a1 requires.
   - The row lock makes the second of two simultaneous requests wait, then see `enabled` false and get a 409, so 3a2 holds even under a race.
+  - The scope conditions are `exists` subqueries, not joins. MySQL's `FOR UPDATE` locks every joined row, and a subquery's rows only when it has its own locking clause, so this way only the student's row is locked, not her course section or course.
   - *Rejected:* an `@Version` column, which would add a migration and a retry path for a rare race.
 - **Already deactivated returns 409 and keeps the original date (3a2).** `StudentStatusConflictException`, mapped like `SectionAlreadyLockedException`, is thrown before any write. The message is "Student is already deactivated." *Rejected:* an idempotent 200, which 3a2 rules out.
 - **Deactivation date and week (BR-deactivated-student-weeks).** `deactivatedOn` is a `LocalDate` taken from the injected `Clock`, so the dev profile's fixed clock moves it too. The deactivation week is `WeekKeys.of(deactivatedOn)`. `WeekKeys` uses ISO weeks, running Monday to Sunday, with keys like `2023-W33`. `PeerEvaluation.week` and the active weeks use the same keys, and the clock's zone is `app.timezone` (America/Chicago). The keys are zero-padded, so comparing them as strings also orders them in time. *Rejected:* a timestamp, because the rule is stated in weeks.
@@ -272,5 +290,5 @@ Integration tests use the seed data:
 
 ## Open questions / risks
 
-- The per-request lookup adds one primary-key query to every API call. It is an indexed single-row read, so it should stay well inside the SRS's performance attributes; `/implement` should check that against the existing performance tests rather than assume it.
+- The per-request lookup adds one primary-key query to every API call. It is an indexed single-row read, so it should stay well inside the SRS's performance attributes. `/implement` found no performance tests in the backend to check it against, so this is still unmeasured.
 - A student reactivated through the interim PUT shows in the reports for the weeks she was inactive. UC-STU-reactivate-student will replace that path and record a reactivation date.

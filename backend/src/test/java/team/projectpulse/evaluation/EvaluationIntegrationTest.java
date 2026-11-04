@@ -33,6 +33,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @DisplayName("Integration tests for Evaluation API endpoints")
 public class EvaluationIntegrationTest extends AbstractIntegrationTest {
@@ -407,6 +408,15 @@ public class EvaluationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.peerEvaluationAverages[0].lastName").value("Smith"))
                 .andExpect(jsonPath("$.data.peerEvaluationAverages[0].averageTotalScore").value(Matchers.closeTo(51.33, 0.01)))
                 .andExpect(jsonPath("$.data.studentsMissingPeerEvaluations").doesNotExist()); // Now GET /sections/{sectionId}/submission-status
+    }
+
+    @Test
+    @DisplayName("The section report rejects a malformed week")
+    void testGenerateWeeklyPeerEvaluationForSectionRejectsMalformedWeek() throws Exception {
+        this.mockMvc.perform(get(this.baseUrl + "/evaluations/sections/2/week/2023-W5").accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.adminBingyangToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.flag").value(false))
+                .andExpect(jsonPath("$.code").value(StatusCode.INVALID_ARGUMENT));
     }
 
     @Test
