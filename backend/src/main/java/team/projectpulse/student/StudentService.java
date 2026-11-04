@@ -4,17 +4,21 @@ import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
 import team.projectpulse.system.exception.ObjectNotFoundException;
+import team.projectpulse.system.exception.StudentStatusConflictException;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import jakarta.transaction.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -27,17 +31,19 @@ public class StudentService {
     private final UserInvitationService userInvitationService;
     private final PasswordEncoder passwordEncoder;
     private final UserUtils userUtils;
+    private final Clock clock;
 
 
-    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils) {
+    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils, Clock clock) {
         this.studentRepository = studentRepository;
         this.sectionRepository = sectionRepository;
         this.userInvitationService = userInvitationService;
         this.passwordEncoder = passwordEncoder;
         this.userUtils = userUtils;
+        this.clock = clock;
     }
 
-    public Page<Student> findByCriteria(Map<String, String> searchCriteria, Pageable pageable) {
+    public StudentSearchResult findByCriteria(Map<String, String> searchCriteria, Pageable pageable) {
         Integer sectionId = this.userUtils.getUserSectionId();
 
         Specification<Student> spec = Specification.unrestricted(); // Start with an unrestricted specification, matching all objects.
@@ -68,7 +74,7 @@ public class StudentService {
 
         spec = spec.and(StudentSpecs.belongsToSection(sectionId)); // Only show students that belong to the default section of the instructor
 
-        return this.studentRepository.findAll(spec, pageable);
+        return new StudentSearchResult(this.studentRepository.findAll(spec, pageable), sectionId);
     }
 
     public Student findStudentById(Integer studentId) {
@@ -123,6 +129,25 @@ public class StudentService {
         }
 
         return this.studentRepository.save(oldStudent);
+    }
+
+    /**
+     * UC-STU-deactivate-student step 6: deactivates her and records her deactivation date, keeping her team and
+     * her submitted work. Her next request is then refused (FR-SEC-active-account).
+     *
+     * <p>The student is loaded scoped to the caller and row-locked. Nothing back means she was deleted after the
+     * route rule passed, or is out of the caller's scope: a permission error, never a 404 (6a). A student who is
+     * already deactivated is refused with 409 before any write, so her original date is kept (3a2).
+     */
+    public Student deactivateStudent(Integer studentId) {
+        Student student = this.studentRepository.findManageableByIdForUpdate(studentId, this.userUtils.getUserId())
+                .orElseThrow(() -> new AccessDeniedException("Not permitted to deactivate student " + studentId + "."));
+        if (!student.isEnabled()) {
+            throw new StudentStatusConflictException("Student is already deactivated.");
+        }
+        student.setEnabled(false);
+        student.setDeactivatedOn(LocalDate.now(this.clock));
+        return this.studentRepository.save(student);
     }
 
     public void deleteStudent(Integer studentId) {

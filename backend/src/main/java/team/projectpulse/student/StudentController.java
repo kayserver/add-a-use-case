@@ -24,10 +24,12 @@ public class StudentController {
     private final StudentRegistrationToStudentConverter studentRegistrationToStudentConverter;
     private final StudentToStudentDtoConverter studentToStudentDtoConverter;
     private final StudentDtoToStudentConverter studentDtoToStudentConverter;
+    private final StudentSecurityService studentSecurityService;
 
 
-    public StudentController(StudentService studentService, StudentRegistrationToStudentConverter studentRegistrationToStudentConverter, StudentToStudentDtoConverter studentToStudentDtoConverter, StudentDtoToStudentConverter studentDtoToStudentConverter) {
+    public StudentController(StudentService studentService, StudentRegistrationToStudentConverter studentRegistrationToStudentConverter, StudentToStudentDtoConverter studentToStudentDtoConverter, StudentDtoToStudentConverter studentDtoToStudentConverter, StudentSecurityService studentSecurityService) {
         this.studentService = studentService;
+        this.studentSecurityService = studentSecurityService;
         this.studentRegistrationToStudentConverter = studentRegistrationToStudentConverter;
         this.studentToStudentDtoConverter = studentToStudentDtoConverter;
         this.studentDtoToStudentConverter = studentDtoToStudentConverter;
@@ -35,15 +37,18 @@ public class StudentController {
 
     @PostMapping("/search")
     public Result findStudentsByCriteria(@RequestBody Map<String, String> searchCriteria, Pageable pageable) {
-        Page<Student> studentPage = this.studentService.findByCriteria(searchCriteria, pageable);
-        Page<StudentDto> studentDtoPage = studentPage.map(this.studentToStudentDtoConverter::convert);
+        StudentSearchResult result = this.studentService.findByCriteria(searchCriteria, pageable);
+        // Every row is in the one course section the search was scoped to, so permission is asked once (3b1).
+        boolean canManageSection = this.studentSecurityService.canManageStudentsOfSection(result.sectionId());
+        Page<StudentDto> studentDtoPage = result.page().map(student ->
+                this.studentToStudentDtoConverter.convertWithLifecycle(student, canManageSection && student.isEnabled()));
         return new Result(true, StatusCode.SUCCESS, "Find students successfully", studentDtoPage);
     }
 
     @GetMapping("/{studentId}")
     public Result findStudentById(@PathVariable Integer studentId) {
         Student student = this.studentService.findStudentById(studentId);
-        StudentDto studentDto = this.studentToStudentDtoConverter.convert(student);
+        StudentDto studentDto = this.studentToStudentDtoConverter.convertWithLifecycle(student, null);
         return new Result(true, StatusCode.SUCCESS, "Find student successfully", studentDto);
     }
 
@@ -68,6 +73,17 @@ public class StudentController {
         Student updatedStudent = this.studentService.updateStudent(studentId, update);
         StudentDto updatedStudentDto = this.studentToStudentDtoConverter.convert(updatedStudent);
         return new Result(true, StatusCode.SUCCESS, "Update student successfully", updatedStudentDto);
+    }
+
+    /**
+     * UC-STU-deactivate-student. The route rule admits only an instructor of her course section or the course admin
+     * of its course (BR-student-lifecycle); 409 if she is already deactivated (3a2).
+     */
+    @PostMapping("/{studentId}/deactivate")
+    public Result deactivateStudent(@PathVariable Integer studentId) {
+        Student deactivatedStudent = this.studentService.deactivateStudent(studentId);
+        StudentDto studentDto = this.studentToStudentDtoConverter.convertWithLifecycle(deactivatedStudent, null);
+        return new Result(true, StatusCode.SUCCESS, "Deactivate student successfully", studentDto);
     }
 
     @DeleteMapping("/{studentId}")

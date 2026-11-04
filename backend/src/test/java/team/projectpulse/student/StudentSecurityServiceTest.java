@@ -10,6 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import team.projectpulse.course.Course;
 import team.projectpulse.instructor.Instructor;
 import team.projectpulse.section.Section;
+import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
 
 import java.util.Optional;
@@ -27,6 +28,9 @@ class StudentSecurityServiceTest {
 
     @Mock
     StudentRepository studentRepository;
+
+    @Mock
+    SectionRepository sectionRepository;
 
     @Mock
     UserUtils userUtils;
@@ -121,6 +125,33 @@ class StudentSecurityServiceTest {
         given(this.userUtils.getUserId()).willReturn(1);
 
         assertThat(this.studentSecurityService.canManageStudentLifecycle(10)).isFalse();
+    }
+
+    @Test
+    @DisplayName("canManageStudentsOfSection: true for an instructor of the course section and for the course admin")
+    void canManageStudentsOfSectionForPermittedCallers() {
+        given(this.sectionRepository.findById(2)).willReturn(Optional.of(this.john.getSection()));
+
+        given(this.userUtils.getUserId()).willReturn(2);
+        assertThat(this.studentSecurityService.canManageStudentsOfSection(2)).isTrue();
+
+        given(this.userUtils.getUserId()).willReturn(1);
+        assertThat(this.studentSecurityService.canManageStudentsOfSection(2)).isTrue();
+    }
+
+    @Test
+    @DisplayName("canManageStudentsOfSection: false for a course section the caller does not manage (3b1)")
+    void canManageStudentsOfSectionForOtherInstructor() {
+        given(this.sectionRepository.findById(2)).willReturn(Optional.of(this.john.getSection()));
+        given(this.userUtils.getUserId()).willReturn(3);
+
+        assertThat(this.studentSecurityService.canManageStudentsOfSection(2)).isFalse();
+    }
+
+    @Test
+    @DisplayName("canManageStudentsOfSection: false, without a lookup, when the caller has no course section")
+    void canManageStudentsOfSectionWithoutSection() {
+        assertThat(this.studentSecurityService.canManageStudentsOfSection(null)).isFalse();
     }
 
 }

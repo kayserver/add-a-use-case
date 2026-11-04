@@ -8,10 +8,15 @@ import team.projectpulse.system.UserUtils;
 import team.projectpulse.user.MyUserPrincipal;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import team.projectpulse.team.Team;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
+import org.springframework.security.access.AccessDeniedException;
+import team.projectpulse.system.exception.StudentStatusConflictException;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -23,11 +28,16 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
@@ -45,6 +55,9 @@ class StudentServiceTest {
     PasswordEncoder passwordEncoder;
     @Mock
     UserUtils userUtils;
+    // The dev profile's fixed clock: Sunday 2023-08-20 23:30 America/Chicago
+    @Spy
+    Clock clock = Clock.fixed(ZonedDateTime.of(2023, 8, 20, 23, 30, 0, 0, ZoneId.of("America/Chicago")).toInstant(), ZoneId.of("America/Chicago"));
 
     @InjectMocks
     private StudentService studentService;
@@ -82,10 +95,11 @@ class StudentServiceTest {
         given(this.userUtils.getUserSectionId()).willReturn(2);
         given(this.studentRepository.findAll(any(Specification.class), any(Pageable.class))).willReturn(expectedPage);
         // When
-        Page<Student> result = this.studentService.findByCriteria(searchCriteria, PageRequest.of(0, 20));
+        StudentSearchResult result = this.studentService.findByCriteria(searchCriteria, PageRequest.of(0, 20));
 
         // Then
-        assertThat(result.getContent().size()).isEqualTo(1);
+        assertThat(result.page().getContent().size()).isEqualTo(1);
+        assertThat(result.sectionId()).isEqualTo(2);
     }
 
     @Test
@@ -188,6 +202,50 @@ class StudentServiceTest {
 
         // Then
         verify(this.studentRepository, times(1)).deleteById(1);
+    }
+
+    @Test
+    @DisplayName("UC-STU-deactivate-student main: deactivates her, records the clock's date, keeps her team")
+    void testDeactivateStudentSuccess() {
+        Student john = this.students.get(0);
+        Team team = new Team();
+        john.setTeam(team);
+        given(this.userUtils.getUserId()).willReturn(2);
+        given(this.studentRepository.findManageableByIdForUpdate(4, 2)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(john)).willReturn(john);
+
+        Student result = this.studentService.deactivateStudent(4);
+
+        assertThat(result.isEnabled()).isFalse();
+        assertThat(result.getDeactivatedOn()).isEqualTo(LocalDate.of(2023, 8, 20));
+        assertThat(result.getTeam()).isSameAs(team);
+    }
+
+    @Test
+    @DisplayName("UC-STU-deactivate-student 3a2: already deactivated is a conflict and keeps the original date")
+    void testDeactivateStudentAlreadyDeactivated() {
+        Student john = this.students.get(0);
+        john.setEnabled(false);
+        john.setDeactivatedOn(LocalDate.of(2023, 8, 1));
+        given(this.userUtils.getUserId()).willReturn(2);
+        given(this.studentRepository.findManageableByIdForUpdate(4, 2)).willReturn(Optional.of(john));
+
+        assertThatThrownBy(() -> this.studentService.deactivateStudent(4))
+                .isInstanceOf(StudentStatusConflictException.class)
+                .hasMessage("Student is already deactivated.");
+        assertThat(john.getDeactivatedOn()).isEqualTo(LocalDate.of(2023, 8, 1));
+        verify(this.studentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("UC-STU-deactivate-student 6a: no student in the caller's scope is a permission error, not a 404")
+    void testDeactivateStudentNotInScope() {
+        given(this.userUtils.getUserId()).willReturn(2);
+        given(this.studentRepository.findManageableByIdForUpdate(999999, 2)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> this.studentService.deactivateStudent(999999))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(this.studentRepository, never()).save(any());
     }
 
 }

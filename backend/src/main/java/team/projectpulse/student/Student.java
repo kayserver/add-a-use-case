@@ -5,6 +5,8 @@ import team.projectpulse.team.Team;
 import team.projectpulse.user.PeerEvaluationUser;
 import jakarta.persistence.*;
 
+import java.time.LocalDate;
+
 @Entity
 public class Student extends PeerEvaluationUser {
 
@@ -12,6 +14,11 @@ public class Student extends PeerEvaluationUser {
     private Section section;
     @ManyToOne
     private Team team;
+    /**
+     * The date she was deactivated (UC-STU-deactivate-student), from the injected {@code Clock}; null while she is
+     * active. Cleared when the interim {@code PUT /students/{studentId}} re-enables her.
+     */
+    private LocalDate deactivatedOn;
 
 
     public Student() {
@@ -35,6 +42,14 @@ public class Student extends PeerEvaluationUser {
 
     public void setTeam(Team team) {
         this.team = team;
+    }
+
+    public LocalDate getDeactivatedOn() {
+        return deactivatedOn;
+    }
+
+    public void setDeactivatedOn(LocalDate deactivatedOn) {
+        this.deactivatedOn = deactivatedOn;
     }
 
 }
