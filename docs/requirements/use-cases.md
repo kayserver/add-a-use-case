@@ -1477,6 +1477,10 @@ Details:
   - 3a1. The system does not offer to deactivate this student.
   - 3a2. If a request to deactivate her still reaches the system, the system refuses it with the message that the student is already deactivated and keeps her original deactivation date.
   - 3a3. Use case ends.
+- **3b. The user is neither an instructor of the student's course section nor the course admin of its course (BR-student-lifecycle):**
+  - 3b1. The system does not offer to deactivate this student.
+  - 3b2. If a request to deactivate her still reaches the system, the system refuses it with a permission error and leaves her account unchanged.
+  - 3b3. Use case ends.
 
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
