@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -201,6 +202,37 @@ class StudentDeactivationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.deactivatedOn").value("2023-08-20"))
                 .andExpect(jsonPath("$.data.canDeactivate").doesNotExist());
+    }
+
+    private ResultActions putJohn(boolean enabled, String token) throws Exception {
+        String body = "{\"username\":\"j.smith@abc.edu\",\"firstName\":\"John\",\"lastName\":\"Smith\",\"email\":\"j.smith@abc.edu\",\"enabled\":" + enabled + "}";
+        return this.mockMvc.perform(put(this.baseUrl + "/students/" + this.johnId).contentType(MediaType.APPLICATION_JSON).content(body).accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, token));
+    }
+
+    @Test
+    @DisplayName("Interim PUT: enabled false no longer deactivates her")
+    void putCannotDeactivate() throws Exception {
+        putJohn(false, this.instructorBillToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.enabled").value(true));
+
+        Student john = reloadJohn();
+        assertThat(john.isEnabled()).isTrue();
+        assertThat(john.getDeactivatedOn()).isNull();
+    }
+
+    @Test
+    @DisplayName("Interim PUT: enabled true from a permitted caller re-enables her and clears her deactivation date")
+    void putReEnablesAndClearsDate() throws Exception {
+        deactivate(this.johnId, this.instructorBillToken).andExpect(status().isOk());
+
+        putJohn(true, this.instructorBillToken)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.enabled").value(true));
+
+        Student john = reloadJohn();
+        assertThat(john.isEnabled()).isTrue();
+        assertThat(john.getDeactivatedOn()).isNull();
     }
 
 }

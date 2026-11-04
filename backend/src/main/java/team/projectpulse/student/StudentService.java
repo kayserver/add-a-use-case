@@ -11,8 +11,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -31,10 +29,12 @@ public class StudentService {
     private final UserInvitationService userInvitationService;
     private final PasswordEncoder passwordEncoder;
     private final UserUtils userUtils;
+    private final StudentSecurityService studentSecurityService;
     private final Clock clock;
 
 
-    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils, Clock clock) {
+    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils, StudentSecurityService studentSecurityService, Clock clock) {
+        this.studentSecurityService = studentSecurityService;
         this.studentRepository = studentRepository;
         this.sectionRepository = sectionRepository;
         this.userInvitationService = userInvitationService;
@@ -110,22 +110,25 @@ public class StudentService {
         return savedStudent;
     }
 
+    /**
+     * Edits her username, names, and email. Deactivation is no longer done here: it has its own confirmed action,
+     * {@link #deactivateStudent} (UC-STU-deactivate-student). {@code enabled} in the update may only re-enable a
+     * deactivated student, and only for a caller who may manage her lifecycle (BR-student-lifecycle); that clears
+     * her deactivation date. This is the interim reactivation path until UC-STU-reactivate-student is designed.
+     * An {@code enabled} of false is ignored.
+     */
     public Student updateStudent(Integer studentId, Student update) {
         Student oldStudent = this.studentRepository.findById(studentId)
                 .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
 
-        // If the user is not an admin, then the user can only update her username, first rubricName, last rubricName, and email
         oldStudent.setUsername(update.getUsername());
         oldStudent.setFirstName(update.getFirstName());
         oldStudent.setLastName(update.getLastName());
         oldStudent.setEmail(update.getEmail());
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        // If the user is an admin, then the user can update all the fields
-        if (authentication.getAuthorities().stream().anyMatch(grantedAuthority -> grantedAuthority.getAuthority().equals("ROLE_instructor"))) {
-            oldStudent.setEnabled(update.isEnabled());
-//            oldStudent.setRoles(update.getRoles());
+        if (update.isEnabled() && !oldStudent.isEnabled() && this.studentSecurityService.canManageStudentLifecycle(studentId)) {
+            oldStudent.setEnabled(true);
+            oldStudent.setDeactivatedOn(null);
         }
 
         return this.studentRepository.save(oldStudent);

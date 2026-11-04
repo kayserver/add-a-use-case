@@ -1,11 +1,9 @@
 package team.projectpulse.student;
 
 import org.junit.jupiter.api.AfterEach;
-import team.projectpulse.instructor.Instructor;
 import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
-import team.projectpulse.user.MyUserPrincipal;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,8 +21,6 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -55,6 +51,8 @@ class StudentServiceTest {
     PasswordEncoder passwordEncoder;
     @Mock
     UserUtils userUtils;
+    @Mock
+    StudentSecurityService studentSecurityService;
     // The dev profile's fixed clock: Sunday 2023-08-20 23:30 America/Chicago
     @Spy
     Clock clock = Clock.fixed(ZonedDateTime.of(2023, 8, 20, 23, 30, 0, 0, ZoneId.of("America/Chicago")).toInstant(), ZoneId.of("America/Chicago"));
@@ -138,70 +136,57 @@ class StudentServiceTest {
     }
 
     @Test
-    void testStudentUpdateOwnInfo() {
-        // Given
+    @DisplayName("Update: edits her details; enabled false in the body is ignored, so the PUT cannot deactivate")
+    void testUpdateStudentIgnoresDisable() {
+        Student john = this.students.get(0);
         Student update = new Student("john", "John (updated)", "Smith (updated)", "j.smith@abc.edu (updated)", "", false, "admin student");
-        given(this.studentRepository.findById(1)).willReturn(Optional.of(this.students.get(0)));
-        given(this.studentRepository.save(any(Student.class))).willReturn(this.students.get(0));
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(any(Student.class))).willReturn(john);
 
-        Instructor instructor = new Instructor();
-        instructor.setRoles("student");
-        MyUserPrincipal myUserPrincipal = new MyUserPrincipal(instructor);
-
-        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(myUserPrincipal, null, myUserPrincipal.getAuthorities()));
-        SecurityContextHolder.setContext(securityContext);
-
-        // When
         Student result = this.studentService.updateStudent(1, update);
 
-        // Then
         assertThat(result.getUsername()).isEqualTo(update.getUsername());
         assertThat(result.getFirstName()).isEqualTo(update.getFirstName());
         assertThat(result.getLastName()).isEqualTo(update.getLastName());
         assertThat(result.getEmail()).isEqualTo(update.getEmail());
-        assertThat(result.getRoles()).isNotEqualTo(update.getRoles());
-        assertThat(result.isEnabled()).isNotEqualTo(update.isEnabled());
+        assertThat(result.getRoles()).isEqualTo("student");
+        assertThat(result.isEnabled()).isTrue();
+        assertThat(result.getDeactivatedOn()).isNull();
+        verifyNoInteractions(this.studentSecurityService);
     }
 
     @Test
-    void testInstructorUpdatesStudent() {
-        // Given
-        Student update = new Student("john", "John (updated)", "Smith (updated)", "j.smith@abc.edu (updated)", "", false, "admin student");
-        given(this.studentRepository.findById(1)).willReturn(Optional.of(this.students.get(0)));
-        given(this.studentRepository.save(any(Student.class))).willReturn(this.students.get(0));
+    @DisplayName("Update: enabled true from a permitted caller re-enables a deactivated student and clears her date")
+    void testUpdateStudentReEnablesForPermittedCaller() {
+        Student john = this.students.get(0);
+        john.setEnabled(false);
+        john.setDeactivatedOn(LocalDate.of(2023, 8, 1));
+        Student update = new Student("john", "John", "Smith", "j.smith@abc.edu", "", true, "student");
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(any(Student.class))).willReturn(john);
+        given(this.studentSecurityService.canManageStudentLifecycle(1)).willReturn(true);
 
-        Instructor instructor = new Instructor();
-        instructor.setRoles("instructor");
-        MyUserPrincipal myUserPrincipal = new MyUserPrincipal(instructor);
-
-        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(myUserPrincipal, null, myUserPrincipal.getAuthorities()));
-        SecurityContextHolder.setContext(securityContext);
-
-        // When
         Student result = this.studentService.updateStudent(1, update);
 
-        // Then
-        assertThat(result.getUsername()).isEqualTo(update.getUsername());
-        assertThat(result.getFirstName()).isEqualTo(update.getFirstName());
-        assertThat(result.getLastName()).isEqualTo(update.getLastName());
-        assertThat(result.getEmail()).isEqualTo(update.getEmail());
-//        assertThat(result.getRoles()).isEqualTo(update.getRoles());
-        assertThat(result.isEnabled()).isEqualTo(update.isEnabled());
+        assertThat(result.isEnabled()).isTrue();
+        assertThat(result.getDeactivatedOn()).isNull();
     }
 
     @Test
-    void testDeleteStudent() {
-        // Given
-        given(this.studentRepository.findById(1)).willReturn(Optional.of(this.students.get(0)));
-        doNothing().when(this.studentRepository).deleteById(1);
+    @DisplayName("Update: enabled true from a caller who may not manage her lifecycle (e.g. the student) is ignored")
+    void testUpdateStudentIgnoresReEnableFromUnpermittedCaller() {
+        Student john = this.students.get(0);
+        john.setEnabled(false);
+        john.setDeactivatedOn(LocalDate.of(2023, 8, 1));
+        Student update = new Student("john", "John", "Smith", "j.smith@abc.edu", "", true, "student");
+        given(this.studentRepository.findById(1)).willReturn(Optional.of(john));
+        given(this.studentRepository.save(any(Student.class))).willReturn(john);
+        given(this.studentSecurityService.canManageStudentLifecycle(1)).willReturn(false);
 
-        // When
-        this.studentService.deleteStudent(1);
+        Student result = this.studentService.updateStudent(1, update);
 
-        // Then
-        verify(this.studentRepository, times(1)).deleteById(1);
+        assertThat(result.isEnabled()).isFalse();
+        assertThat(result.getDeactivatedOn()).isEqualTo(LocalDate.of(2023, 8, 1));
     }
 
     @Test
