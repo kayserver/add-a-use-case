@@ -35,11 +35,11 @@
       <el-table-column label="Team" prop="teamName"></el-table-column>
       <el-table-column label="Status" prop="enabled">
         <template #default="{ row }">
-          <el-tag type="success" v-if="row.enabled">Enabled</el-tag>
-          <el-tag type="danger" v-else>Disabled</el-tag>
+          <el-tag type="success" v-if="row.enabled">Active</el-tag>
+          <el-tag type="danger" v-else>Deactivated</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="Operations" width="120">
+      <el-table-column label="Operations" width="160">
         <template #default="{ row }">
           <el-button
             icon="Edit"
@@ -48,6 +48,17 @@
             type="primary"
             @click.stop="showEditStudentDialog(row)"
           ></el-button>
+          <!-- UC-STU-deactivate-student: offered only when the server says so (3a1, 3b1) -->
+          <el-tooltip v-if="row.canDeactivate" content="Deactivate" placement="top">
+            <el-button
+              icon="CircleClose"
+              circle
+              plain
+              type="danger"
+              aria-label="Deactivate"
+              @click.stop="confirmDeactivateStudent(row)"
+            ></el-button>
+          </el-tooltip>
         </template>
       </el-table-column>
       <template #empty>
@@ -77,8 +88,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { searchStudents } from '@/apis/student'
+import { h, onMounted, ref } from 'vue'
+import { deactivateStudent, searchStudents } from '@/apis/student'
 import type {
   SearchStudentByCriteriaResponse,
   Student,
@@ -86,7 +97,7 @@ import type {
 } from '@/apis/student/types'
 import { useSettingsStore } from '@/stores/settings'
 import EditStudentForm from './EditStudentForm.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const searchCriteria = ref<StudentSearchCriteria>({
   sectionId: NaN,
@@ -161,6 +172,42 @@ function showEditStudentDialog(student: Student) {
 
 function closeDialog() {
   dialogVisible.value = false
+  loadStudents()
+}
+
+// UC-STU-deactivate-student steps 3-6: confirm, listing the consequences, then deactivate
+async function confirmDeactivateStudent(student: Student) {
+  try {
+    await ElMessageBox.confirm(
+      h('div', [
+        h('p', 'Deactivating this student means:'),
+        h('ul', [
+          h(
+            'li',
+            'She can no longer log in or submit weekly activity reports and peer evaluations. Any session she has open ends on her next request.'
+          ),
+          h('li', 'Her account, her team, and her submitted work are kept.'),
+          h('li', 'She can be reactivated later.'),
+          h('li', 'This is not deletion.')
+        ])
+      ]),
+      `Deactivate ${student.firstName} ${student.lastName}?`,
+      {
+        confirmButtonText: 'Deactivate',
+        cancelButtonText: 'Cancel',
+        confirmButtonClass: 'el-button--danger',
+        type: 'warning'
+      }
+    )
+  } catch {
+    return // 5a: cancelled, no request is sent
+  }
+  try {
+    await deactivateStudent(student.id as number)
+    ElMessage.success('Student deactivated')
+  } catch {
+    // 409 (already deactivated) and 403 (not permitted, or deleted) are shown by the shared request interceptor
+  }
   loadStudents()
 }
 

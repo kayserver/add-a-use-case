@@ -11,6 +11,8 @@ export interface Student {
   sectionName?: string
   teamId?: number
   teamName?: string
+  deactivatedOn?: string | null // ISO date (yyyy-MM-dd); only on search rows and the single-student GET, null while active
+  canDeactivate?: boolean | null // only on search rows: whether this caller is offered Deactivate (UC-STU-deactivate-student)
 }
 
 export interface PaginationParams {
@@ -101,4 +103,11 @@ export interface DeleteStudentResponse {
   code: number
   message: string
   data: null
+}
+
+export interface DeactivateStudentResponse {
+  flag: boolean
+  code: number
+  message: string
+  data: Student
 }

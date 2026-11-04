@@ -9,7 +9,8 @@ import type {
   UpdateStudentResponse,
   Student,
   RegistrationParams,
-  FindStudentByTeamIdResponse
+  FindStudentByTeamIdResponse,
+  DeactivateStudentResponse
 } from './types'
 
 enum API {
@@ -25,8 +26,11 @@ export const searchStudents = (params: PaginationParams, searchCriteria: Student
 export const findStudentById = (id: number) =>
   request.get<any, FindStudentByIdResponse>(`${API.STUDENTS_ENDPOINT}/${id}`)
 
-export const findStudentsByTeamId = (teamId: number) =>
-  request.get<any, FindStudentByTeamIdResponse>(`${API.STUDENTS_ENDPOINT}/teams/${teamId}`)
+// With a week, the server leaves out any teammate deactivated before it (BR-deactivated-student-weeks)
+export const findStudentsByTeamId = (teamId: number, week?: string) =>
+  request.get<any, FindStudentByTeamIdResponse>(`${API.STUDENTS_ENDPOINT}/teams/${teamId}`, {
+    params: week ? { week } : undefined
+  })
 
 export const createStudent = (newStudent: Student, params: RegistrationParams) =>
   request.post<any, CreateStudentResponse>(API.STUDENTS_ENDPOINT, newStudent, { params })
@@ -36,6 +40,9 @@ export const updateStudent = (updatedStudent: Student) =>
     `${API.STUDENTS_ENDPOINT}/${updatedStudent.id}`,
     updatedStudent
   )
+
+export const deactivateStudent = (id: number) =>
+  request.post<any, DeactivateStudentResponse>(`${API.STUDENTS_ENDPOINT}/${id}/deactivate`)
 
 export const deleteStudent = (id: number) =>
   request.delete<any, DeleteStudentResponse>(`${API.STUDENTS_ENDPOINT}/${id}`)

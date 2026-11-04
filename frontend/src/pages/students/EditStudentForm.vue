@@ -14,11 +14,13 @@
       <el-input v-model="studentBeingEdited.username"></el-input>
     </el-form-item>
     <el-form-item label="Status:" prop="enabled">
+      <!-- Can only turn a deactivated student back on; deactivating is its own confirmed action on the Students list -->
       <el-switch
         v-model="studentBeingEdited.enabled"
+        :disabled="wasActive"
         inline-prompt
-        active-text="Enabled"
-        inactive-text="Disabled"
+        active-text="Active"
+        inactive-text="Deactivated"
         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949"
       />
     </el-form-item>
@@ -50,6 +52,9 @@ import { ref, onMounted } from 'vue'
 
 const { studentId } = defineProps(['studentId'])
 const emit = defineEmits(['close-dialog'])
+
+// Whether she was active when the form loaded: the switch may only re-enable a deactivated student
+const wasActive = ref<boolean>(true)
 
 // Note that the structure of the userData is NOT the same as the User interface since the roles are stored as an array
 const studentBeingEdited = ref<Student>({
@@ -94,6 +99,7 @@ async function loadStudent(studentId: number) {
   studentBeingEdited.value.id = result.data.id as number
   studentBeingEdited.value.username = result.data.username
   studentBeingEdited.value.enabled = result.data.enabled
+  wasActive.value = result.data.enabled === true
   studentBeingEdited.value.firstName = result.data.firstName
   studentBeingEdited.value.lastName = result.data.lastName
   studentBeingEdited.value.email = result.data.email

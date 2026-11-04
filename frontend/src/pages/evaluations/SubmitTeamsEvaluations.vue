@@ -181,7 +181,11 @@ onMounted(async () => {
 // Load activities based on the search criteria
 async function loadStudents() {
   // On the back end, the page number starts from 0, so subtract 1 here
-  const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(teamId.value)
+  // Ask for the teammates of the week being evaluated, so a teammate deactivated before it is left out
+  const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(
+    teamId.value,
+    previousWeek.value
+  )
   students.value = result.data
 }
 
