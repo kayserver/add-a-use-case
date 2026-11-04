@@ -1,5 +1,7 @@
 package team.projectpulse.student;
 
+import team.projectpulse.instructor.Instructor;
+import team.projectpulse.section.Section;
 import team.projectpulse.system.UserUtils;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
@@ -45,6 +47,30 @@ public class StudentSecurityService {
         }
         return student.getSection().getInstructors().stream()
                 .anyMatch(instructor -> instructor.getId().equals(instructorIdFromJwt));
+    }
+
+    /**
+     * Whether the caller may change this student's lifecycle state (BR-student-lifecycle): she is an instructor
+     * of the student's course section, or the course admin of its course. A role alone, {@code ROLE_admin}
+     * included, grants nothing. An unknown id is {@code false}, so the route answers 403 (UC-STU-deactivate-student 6a).
+     *
+     * <p>Kept separate from {@link #isCurrentUserInstructorOfStudentSection}, which also guards private
+     * peer-evaluation details and must not start admitting the course admin.
+     */
+    public boolean canManageStudentLifecycle(Integer studentId) {
+        Student student = this.studentRepository.findById(studentId).orElse(null);
+        if (student == null) {
+            return false;
+        }
+        return canManageSection(student.getSection(), this.userUtils.getUserId());
+    }
+
+    private static boolean canManageSection(Section section, Integer callerId) {
+        if (section.getInstructors().stream().anyMatch(instructor -> instructor.getId().equals(callerId))) {
+            return true;
+        }
+        Instructor courseAdmin = section.getCourse().getCourseAdmin();
+        return courseAdmin != null && courseAdmin.getId().equals(callerId);
     }
 
 }
