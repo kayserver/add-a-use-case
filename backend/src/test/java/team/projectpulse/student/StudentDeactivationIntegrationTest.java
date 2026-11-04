@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -190,6 +191,17 @@ class StudentDeactivationIntegrationTest extends AbstractIntegrationTest {
         deactivate(999999, this.instructorBillToken)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(StatusCode.FORBIDDEN));
+    }
+
+    @Test
+    @DisplayName("The single-student GET carries her deactivation date")
+    void singleStudentGetCarriesDeactivationDate() throws Exception {
+        deactivate(this.johnId, this.instructorBillToken).andExpect(status().isOk());
+
+        this.mockMvc.perform(get(this.baseUrl + "/students/" + this.johnId).accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, this.instructorBillToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deactivatedOn").value("2023-08-20"))
+                .andExpect(jsonPath("$.data.canDeactivate").doesNotExist());
     }
 
     private ResultActions putJohn(boolean enabled, String token) throws Exception {

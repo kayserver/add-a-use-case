@@ -112,4 +112,12 @@ class DeactivatedStudentWeeksIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data[*].id", hasItem(this.john.getId())));
     }
 
+    @Test
+    @DisplayName("A malformed week is a bad request")
+    void malformedWeekIsRejected() throws Exception {
+        teammates("2023-32")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(StatusCode.INVALID_ARGUMENT));
+    }
+
 }
