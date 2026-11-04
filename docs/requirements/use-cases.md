@@ -1481,6 +1481,9 @@ Details:
   - 3b1. The system does not offer to deactivate this student.
   - 3b2. If a request to deactivate her still reaches the system, the system refuses it with a permission error and leaves her account unchanged.
   - 3b3. Use case ends.
+- **5a. The course admin or instructor cancels the deactivation:**
+  - 5a1. The system leaves the student's account unchanged.
+  - 5a2. Use case ends.
 
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
