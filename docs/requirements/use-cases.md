@@ -1484,6 +1484,9 @@ Details:
 - **5a. The course admin or instructor cancels the deactivation:**
   - 5a1. The system leaves the student's account unchanged.
   - 5a2. Use case ends.
+- **6a. The student was deleted before the system received the confirmation:**
+  - 6a1. The system refuses the deactivation with a permission error, as in 3b2.
+  - 6a2. Use case ends.
 
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
