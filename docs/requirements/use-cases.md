@@ -1469,7 +1469,7 @@ Details:
 3. The course admin or instructor chooses to deactivate this student.
 4. The system alerts the course admin or instructor of the consequences of this deactivation defined in the Associated Information of this use case, warns about the deactivation, and asks for confirmation.
 5. The course admin or instructor confirms the deactivation.
-6. The system deactivates the student and alerts the course admin or instructor that this student has been deactivated.
+6. The system deactivates the student, records her deactivation date, and alerts the course admin or instructor that this student has been deactivated.
 7. Use case ends.
 
 **Extensions:**
@@ -1490,10 +1490,11 @@ Details:
 
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
-**Business Rules:** BR-student-lifecycle
+**Business Rules:** BR-student-lifecycle, BR-deactivated-student-weeks
 
 **Associated Information:**
 - Consequence of the deactivation: The student will no longer be able to log in or submit weekly activity reports and peer evaluations, but the student's account and her previously submitted work are kept in the system. Deactivation will NOT remove the student from the system, and the account can be reactivated in the future (UC-STU-reactivate-student: Reactivate a student). This is distinct from deletion (UC-STU-delete-student: Delete a student), which is a physical, unrecoverable delete. The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
+- Team membership and reporting after deactivation: the student stays on her team, and the weeks for which she still appears in the course section peer evaluation report and may be evaluated by her teammates follow BR-deactivated-student-weeks.
 - Effect on a logged-in student: the system refuses her very next request, per FR-SEC-active-account.
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-reactivate-student: Reactivate a student
