@@ -12,6 +12,7 @@ import team.projectpulse.system.exception.PeerEvaluationIllegalArgumentException
 import team.projectpulse.team.Team;
 import team.projectpulse.user.MyUserPrincipal;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -30,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -316,6 +318,39 @@ class EvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("BR-deactivated-student-weeks: a teammate deactivated in the evaluated week may still be evaluated for it")
+    void testAddPeerEvaluationOfStudentDeactivatedThatWeek() {
+        LocalDate fixedDate = LocalDate.of(2023, 8, 13); // previous week is 2023-W31
+        Clock fixedClock = Clock.fixed(fixedDate.atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+        woody.setDeactivatedOn(LocalDate.of(2023, 8, 3)); // Thursday of 2023-W31
+
+        PeerEvaluation newPeerEvaluation = new PeerEvaluation("2023-W31", amanda, woody, List.of(), "public comment", "private comment");
+        given(this.evaluationRepository.save(newPeerEvaluation)).willReturn(newPeerEvaluation);
+
+        assertThat(this.evaluationService.addPeerEvaluation(newPeerEvaluation)).isEqualTo(newPeerEvaluation);
+    }
+
+    @Test
+    @DisplayName("BR-deactivated-student-weeks: a teammate deactivated before the evaluated week may not be evaluated for it")
+    void testAddPeerEvaluationOfStudentDeactivatedEarlier() {
+        LocalDate fixedDate = LocalDate.of(2023, 8, 13); // previous week is 2023-W31
+        Clock fixedClock = Clock.fixed(fixedDate.atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+        woody.setDeactivatedOn(LocalDate.of(2023, 7, 30)); // Sunday of 2023-W30
+
+        PeerEvaluation newPeerEvaluation = new PeerEvaluation("2023-W31", amanda, woody, List.of(), "public comment", "private comment");
+
+        Throwable throwable = catchThrowable(() -> this.evaluationService.addPeerEvaluation(newPeerEvaluation));
+
+        assertThat(throwable).isInstanceOf(PeerEvaluationIllegalArgumentException.class)
+                .hasMessage("Woody was deactivated before that week and cannot be evaluated for it.");
+        verify(this.evaluationRepository, never()).save(any());
+    }
+
+    @Test
     void testAddPeerEvaluationNotInActiveWeeks() {
         // Given
         // No clock is needed here: an inactive week is refused before the previous-week check reads the clock
@@ -590,6 +625,33 @@ class EvaluationServiceTest {
         assertThat(report.getPeerEvaluationAverages().get(1).getAverageTotalScore()).isCloseTo(50.0, within(0.01));
         assertThat(report.getPeerEvaluationAverages().get(2).getAverageTotalScore()).isCloseTo(51.0, within(0.01));
         assertThat(report.getPeerEvaluationAverages().get(3).getAverageTotalScore()).isCloseTo(52.0, within(0.01));
+    }
+
+    @Test
+    @DisplayName("BR-deactivated-student-weeks: the section report includes her for her deactivation week")
+    void testSectionReportIncludesStudentInHerDeactivationWeek() {
+        john.setDeactivatedOn(LocalDate.of(2023, 8, 6)); // Sunday of 2023-W31
+        given(this.sectionRepository.findById(anyInt())).willReturn(Optional.of(new Section("2023-2024", LocalDate.of(2023, 8, 14), LocalDate.of(2024, 4, 29), true, DayOfWeek.MONDAY, LocalTime.of(23, 59), DayOfWeek.TUESDAY, LocalTime.of(23, 59))));
+        given(this.studentRepository.findBySectionSectionId(anyInt())).willReturn(this.students);
+
+        WeeklyPeerEvaluationReport report = this.evaluationService.generateWeeklyPeerEvaluationReportForSection(2, "2023-W31");
+
+        assertThat(report.getPeerEvaluationAverages()).hasSize(5);
+        assertThat(report.getPeerEvaluationAverages()).extracting("studentId").contains(3);
+    }
+
+    @Test
+    @DisplayName("BR-deactivated-student-weeks: the section report leaves her out for a week after her deactivation week")
+    void testSectionReportLeavesOutStudentAfterHerDeactivationWeek() {
+        john.setDeactivatedOn(LocalDate.of(2023, 7, 30)); // Sunday of 2023-W30
+        given(this.sectionRepository.findById(anyInt())).willReturn(Optional.of(new Section("2023-2024", LocalDate.of(2023, 8, 14), LocalDate.of(2024, 4, 29), true, DayOfWeek.MONDAY, LocalTime.of(23, 59), DayOfWeek.TUESDAY, LocalTime.of(23, 59))));
+        given(this.studentRepository.findBySectionSectionId(anyInt())).willReturn(this.students);
+
+        WeeklyPeerEvaluationReport report = this.evaluationService.generateWeeklyPeerEvaluationReportForSection(2, "2023-W31");
+
+        assertThat(report.getPeerEvaluationAverages()).hasSize(4);
+        assertThat(report.getPeerEvaluationAverages()).extracting("studentId").doesNotContain(3);
+        verify(this.evaluationRepository, never()).findByWeekAndEvaluateeId("2023-W31", 3);
     }
 
     @Test

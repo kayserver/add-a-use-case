@@ -3,6 +3,7 @@ package team.projectpulse.student;
 import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
+import team.projectpulse.system.WeekKeys;
 import team.projectpulse.system.exception.ObjectNotFoundException;
 import team.projectpulse.system.exception.StudentStatusConflictException;
 import team.projectpulse.user.userinvitation.UserInvitationService;
@@ -82,8 +83,20 @@ public class StudentService {
                 .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
     }
 
-    public List<Student> findStudentsByTeamId(Integer teamId) {
-        return this.studentRepository.findByTeamTeamId(teamId);
+    /**
+     * Her team's members. With a week, leaves out any member whose deactivation week is earlier than it, so the peer
+     * evaluation form shows a deactivated teammate exactly for the weeks she may be evaluated
+     * (BR-deactivated-student-weeks).
+     *
+     * @throws IllegalArgumentException if {@code week} is given and is not a well-formed week key
+     */
+    public List<Student> findStudentsByTeamId(Integer teamId, String week) {
+        List<Student> members = this.studentRepository.findByTeamTeamId(teamId);
+        if (week == null) {
+            return members;
+        }
+        WeekKeys.requireValid(week);
+        return members.stream().filter(student -> !student.wasDeactivatedBefore(week)).toList();
     }
 
     public Student saveStudent(Student newStudent, Integer courseId, Integer sectionId, String registrationToken, String role) {

@@ -53,8 +53,9 @@ public class StudentController {
     }
 
     @GetMapping("/teams/{teamId}")
-    public Result findStudentsByTeamId(@PathVariable Integer teamId) {
-        List<Student> students = this.studentService.findStudentsByTeamId(teamId);
+    public Result findStudentsByTeamId(@PathVariable Integer teamId, @RequestParam(required = false) String week) {
+        // Students call this for their own team, so these DTOs never carry a teammate's deactivation date
+        List<Student> students = this.studentService.findStudentsByTeamId(teamId, week);
         List<StudentDto> studentDtos = students.stream().map(this.studentToStudentDtoConverter::convert).collect(Collectors.toList());
         return new Result(true, StatusCode.SUCCESS, "Find students by team id successfully", studentDtos);
     }
