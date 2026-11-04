@@ -1473,6 +1473,11 @@ Details:
 7. Use case ends.
 
 **Extensions:**
+- **3a. The student's account is already deactivated:**
+  - 3a1. The system does not offer to deactivate this student.
+  - 3a2. If a request to deactivate her still reaches the system, the system refuses it with the message that the student is already deactivated and keeps her original deactivation date.
+  - 3a3. Use case ends.
+
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
 **Business Rules:** BR-student-lifecycle
