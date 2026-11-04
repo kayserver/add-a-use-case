@@ -221,6 +221,9 @@ public class EvaluationService {
     }
 
     public WeeklyPeerEvaluationReport generateWeeklyPeerEvaluationReportForSection(Integer sectionId, String week) {
+        // The deactivation filter below orders week keys as strings, which only works for well-formed keys
+        WeekKeys.requireValid(week);
+
         // Create a new weekly peer evaluation report
         WeeklyPeerEvaluationReport report = new WeeklyPeerEvaluationReport();
 
