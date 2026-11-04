@@ -1534,6 +1534,9 @@ Details:
 
 **Associated Information:**
 - The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
+- A reactivation date is recorded.
+- She is left off reports for the weeks she was inactive.
+- She returns to the same team, since deactivation never removed her.
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-deactivate-student: Deactivate a student
 **Assumptions:**
